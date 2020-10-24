@@ -1,2 +1,2 @@
 # smashBot
-Creating a SSBM CPU using Reinforcement Learning.
+Creating a SSBM Bot using Reinforcement Learning.
