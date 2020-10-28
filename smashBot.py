@@ -1,7 +1,9 @@
 import argparse
 import melee
 import sys
-
+import random
+import signal
+import dataLogger
 
 def check_port(value):
     """
@@ -28,11 +30,6 @@ def parse_arguments():
     parser.add_argument('--opponent', '-o', type=check_port,
                         help='The controller port (1-4) the opponent will play on',
                         default=1)
-    parser.add_argument('--debug', '-d', action='store_true',
-                        help='Debug mode. Creates a CSV of all game states')
-    parser.add_argument('--framerecord', '-r', default=False, action='store_true',
-                        help='(DEVELOPMENT ONLY) Records frame data from the match,' \
-                             'stores into framedata.csv.')
     parser.add_argument('--address', '-a', default="127.0.0.1",
                         help='IP address of Slippi/Wii')
     parser.add_argument('--dolphin_executable_path', '-e', default=None,
@@ -47,21 +44,14 @@ def main():
     # Parse arguments.
     args = parse_arguments()
 
-    # Create logger object if we are debugging
-    log = None
-    if args.debug:
-        log = melee.Logger()
-
-    # This frame data object contains lots of helper functions and values for looking up
-    #   various Melee stats, hitboxes, and physics calculations
-    framedata = melee.FrameData(args.framerecord)
+    # Create logger object
+    log = dataLogger.DataLogger()
 
     # Create console object for melee. Used to interface with melee.
     console = melee.Console(path=args.dolphin_executable_path,
                             slippi_address=args.address,
                             slippi_port=51441,
-                            blocking_input=False,
-                            polling_mode=False,
+                            online_delay=2,
                             logger=log)
 
     # Dolphin has an optional mode to not render the game's visuals
@@ -75,6 +65,17 @@ def main():
     controller = melee.Controller(console=console,
                                   port=args.port,
                                   type=melee.ControllerType.STANDARD)
+
+    # Kills Dolphin when you ^C or program terminates
+    def signal_handler(sig, frame):
+        console.stop()
+        log.writelog()
+        print("")  # because the ^C will be on the terminal
+        print("Log file created: " + log.filename)
+        print("Shutting down cleanly...")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, signal_handler)
 
     # Run console.
     console.run()
@@ -94,6 +95,7 @@ def main():
     print("Controller connected")
 
     # Main loop.
+    log_saved = False
     while True:
         # "step" to the next frame
         gamestate = console.step()
@@ -116,18 +118,15 @@ def main():
                 discovered_port = melee.gamestate.port_detector(gamestate, melee.Character.FOX, 0)
                 print(discovered_port)
             if discovered_port > 0:
-                if args.framerecord:
-                    framedata._record_frame(gamestate)
                 # NOTE: This is where your AI does all of its stuff!
                 # This line will get hit once per frame, so here is where you read
                 #   in the gamestate and decide what buttons to push on the controller
-                if args.framerecord:
-                    melee.techskill.upsmashes(ai_state=gamestate.player[discovered_port], controller=controller)
-                else:
-                    melee.techskill.multishine(ai_state=gamestate.player[discovered_port], controller=controller)
+                melee.techskill.multishine(ai_state=gamestate.player[discovered_port], controller=controller)
             else:
                 # If the discovered port was unsure, reroll our costume for next time
                 costume = random.randint(0, 4)
+
+            log_saved = False
         elif gamestate.menu_state == melee.Menu.CHARACTER_SELECT:
             melee.menuhelper.MenuHelper.menu_helper_simple(gamestate,
                                                            controller,
@@ -138,9 +137,16 @@ def main():
                                                            costume=0,
                                                            autostart=args.connect_code != "",
                                                            swag=True)
-        if log:
-            log.logframe(gamestate)
-            log.writeframe()
+
+            # Save log once while not in game.
+            if not log_saved:
+                log.writelog()
+                log_saved = True
+                log = dataLogger.DataLogger()    # Close old csv file and open a new one.
+                print("Log saved.")
+
+        log.logframe(gamestate)
+        log.writeframe()
 
 if __name__ == '__main__':
     main()
