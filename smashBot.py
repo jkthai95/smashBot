@@ -45,7 +45,7 @@ def main():
     args = parse_arguments()
 
     # Create logger object
-    log = dataLogger.DataLogger()
+    log = dataLogger.DataLogger(args.opponent, args.port)
 
     # Create console object for melee. Used to interface with melee.
     console = melee.Console(path=args.dolphin_executable_path,
@@ -95,7 +95,7 @@ def main():
     print("Controller connected")
 
     # Main loop.
-    log_saved = False
+    log_saved = True
     while True:
         # "step" to the next frame
         gamestate = console.step()
@@ -126,7 +126,13 @@ def main():
                 # If the discovered port was unsure, reroll our costume for next time
                 costume = random.randint(0, 4)
 
+            # Save game data.
+            log.logframe(gamestate)
+            log.writeframe()
+
+            # Reset log saving flag. We in a new game.
             log_saved = False
+
         elif gamestate.menu_state == melee.Menu.CHARACTER_SELECT:
             melee.menuhelper.MenuHelper.menu_helper_simple(gamestate,
                                                            controller,
@@ -140,13 +146,15 @@ def main():
 
             # Save log once while not in game.
             if not log_saved:
+                # Save and close csv file
                 log.writelog()
                 log_saved = True
-                log = dataLogger.DataLogger()    # Close old csv file and open a new one.
                 print("Log saved.")
 
-        log.logframe(gamestate)
-        log.writeframe()
+                # TODO: Train model here
+
+                # Open new csv file for data logging
+                log = dataLogger.DataLogger(args.opponent, args.port)
 
 if __name__ == '__main__':
     main()
